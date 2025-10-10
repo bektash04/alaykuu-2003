@@ -11,9 +11,10 @@ const Handlebars  = require('handlebars');
 const puppeteer   = require('puppeteer');
 const cookieSession = require('cookie-session');
 
-const DATA_DIR = process.env.DATA_DIR || __dirname;
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const app = express();
 app.set('trust proxy', 1);  
+
 
 // ===== Конфиг админки (логин/пароль) =====
 const ADMIN_USER = (process.env.ADMIN_USER || 'admin').trim();
@@ -60,8 +61,11 @@ function requireAuth(req, res, next) {
 }
 
 // ===== Папка для PDF (АБСОЛЮТНЫЙ путь) =====
-const OUT_DIR = path.resolve(DATA_DIR, 'generated');
-if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR);
+const OUT_DIR = path.join(DATA_DIR, 'generated');
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
+if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
+
+
 
 // ===== База данных =====
 const db = new sqlite3.Database(path.join(DATA_DIR, "tickets.db"));
