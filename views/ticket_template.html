@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Билет — {{event_name}}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
+        line-height: 1.45;
+        color: #0f172a;
+        background: #f1f5f9;
+        -webkit-font-smoothing: antialiased;
+      }
+      .page {
+        width: 100%;
+        min-height: 100vh;
+        padding: 24px;
+        display: grid;
+        place-items: center;
+      }
+      .ticket {
+        width: 900px;
+        background: #fff;
+        border-radius: 20px;
+        overflow: hidden;
+        box-shadow: 0 10px 30px rgba(2, 6, 23, 0.08);
+        border: 1px solid #e2e8f0;
+      }
+      .header {
+        color: #fff;
+        display: flex;
+        align-items: center;
+        gap: 20px;
+      }
+      .logo {
+        width: 64px;
+        height: 64px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.15);
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+      }
+      .headings {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .event-title {
+        font-size: 28px;
+        font-weight: 800;
+        letter-spacing: 0.2px;
+      }
+      .subtitle {
+        opacity: 0.9;
+        font-size: 14px;
+      }
+
+      .body {
+        display: grid;
+        grid-template-columns: 1.6fr 1fr;
+        gap: 0;
+      }
+      .left {
+        padding: 24px 32px 28px 32px;
+        border-right: 1px dashed #e2e8f0;
+      }
+      .right {
+        padding: 24px 32px 28px 32px;
+        display: grid;
+        place-items: center;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+        margin-bottom: 12px;
+      }
+      .field {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 12px 14px;
+      }
+      .label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #64748b;
+        margin-bottom: 6px;
+      }
+      .value {
+        font-size: 16px;
+        font-weight: 600;
+        color: #0f172a;
+        word-break: break-word;
+      }
+
+      .badge {
+        display: inline-block;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas,
+          "Liberation Mono", monospace;
+        font-weight: 700;
+        font-size: 14px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px dashed;
+      }
+      .ticket-id {
+        margin-top: 10px;
+        background: #eef2ff;
+        border-color: #c7d2fe;
+        color: #3730a3;
+      }
+      .serial {
+        margin-top: 6px;
+        background: #dcfce7;
+        border-color: #86efac;
+        color: #166534;
+      }
+
+      .notes {
+        margin-top: 16px;
+        font-size: 12px;
+        color: #475569;
+      }
+      .qr-wrap {
+        text-align: center;
+      }
+      .qr-wrap img {
+        width: 220px;
+        height: 220px;
+        display: block;
+        margin: 0 auto 12px;
+      }
+      .qr-caption {
+        font-size: 12px;
+        color: #475569;
+      }
+
+      .footer {
+        padding: 12px 18px;
+        background: #f8fafc;
+        border-top: 1px solid #e2e8f0;
+        font-size: 11px;
+        color: #64748b;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .org {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      .org .dot {
+        width: 6px;
+        height: 6px;
+        background: #6366f1;
+        border-radius: 999px;
+      }
+.organizer-logo { width: 130px; height: auto; display: block; }
+.top-ticket{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: linear-gradient(135deg, #0ea5e9, #6366f1);
+  color: #fff;
+   padding: 15px 30px;
+}
+      /* PDF */
+      @page {
+        size: A4 landscape;
+        margin: 18mm;
+      }
+      @media print {
+        body {
+          background: #fff;
+        }
+        .page {
+          padding: 0;
+        }
+        .ticket {
+          box-shadow: none;
+        }
+      }
+
+      /* Mobile просмотр */
+      @media screen and (max-width: 640px) {
+        body {
+          background: #fff;
+        }
+        .page {
+          padding: 12px;
+        }
+        .ticket {
+          width: 100%;
+          border-radius: 16px;
+          box-shadow: 0 6px 18px rgba(2, 6, 23, 0.06);
+        }
+        .header {
+          padding: 20px;
+          gap: 12px;
+        }
+        .event-title {
+          font-size: 22px;
+        }
+        .subtitle {
+          font-size: 12px;
+        }
+
+        .body {
+          grid-template-columns: 1fr;
+        }
+        .left {
+          padding: 18px;
+          border-right: 0;
+          border-bottom: 1px dashed #e2e8f0;
+        }
+        .right {
+          padding: 18px;
+        }
+        .row {
+          grid-template-columns: 1fr;
+          gap: 10px;
+          margin-bottom: 10px;
+        }
+        .field {
+          padding: 10px 12px;
+          border-radius: 10px;
+        }
+        .badge {
+          display: block;
+          width: 100%;
+          text-align: center;
+        }
+        .qr-wrap img {
+          width: 180px;
+          height: 180px;
+        }
+        .footer {
+          padding: 10px 14px;
+          font-size: 10.5px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="ticket">
+        <div class="top-ticket">
+          <div class="header">
+          <div class="logo">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none">
+              <rect
+                x="2"
+                y="4"
+                width="20"
+                height="16"
+                rx="4"
+                fill="white"
+                opacity="0.2"
+              />
+              <path
+                d="M6 12h12M6 9h8M6 15h6"
+                stroke="white"
+                stroke-width="1.5"
+                stroke-linecap="round"
+              />
+            </svg>
+          </div>
+          <div class="headings">
+            <div class="event-title">{{event_name}}</div>
+            <div class="subtitle">{{event_tagline}}</div>
+          </div>
+        </div>
+        <div>{{#if logo_data_url}}<img class="organizer-logo" src="{{logo_data_url}}" alt="Organizer logo">{{/if}} </div>
+        </div>
+        
+
+        <div class="body">
+          <div class="left">
+            <div class="row">
+              <div class="field">
+                <div class="label">Аты-жөнү</div>
+                <div class="value">{{buyer_name}}</div>
+              </div>
+              <div class="field">
+                <div class="label">Түрү</div>
+                <div class="value">{{ticket_category}}</div>
+              </div>
+            </div>
+            <div class="row">
+              <div class="field">
+                <div class="label">Күнү</div>
+                <div class="value">{{event_date_human}}</div>
+              </div>
+              <div class="field">
+                <div class="label">Убактысы</div>
+                <div class="value">{{event_time_human}}</div>
+              </div>
+            </div>
+            <div class="row">
+              <div class="field">
+                <div class="label">Жайгашкан жери</div>
+                <div class="value">{{venue}}</div>
+              </div>
+              <div class="field">
+                <div class="label">Орундук</div>
+                <div class="value">{{seat}}</div>
+              </div>
+            </div>
+
+            <div class="badge ticket-id">БИЛЕТ: {{ticket_id}}</div>
+            <div class="badge serial">НОМЕР: №{{serial_no}}</div>
+
+            <div class="notes">
+             Билет аты-жөнү көрсөтүлгөн жана бир жолу гана жарактуу. Өзүңүз менен кошо жеке күбөлүгүңүздү алып жүрүңүз.
+            </div>
+          </div>
+
+          <div class="right">
+            <div class="qr-wrap">
+              <img src="{{qr_data_url}}" alt="QR" />
+              <div class="qr-caption">
+                Киргенде QR-кодду көрсөтүңүз • {{ticket_id}}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="footer">
+          <div class="org">
+            <div class="dot"></div>
+            <div>{{organizer_name}} • {{organizer_contact}}</div>
+          </div>
+          <div>© {{year}} Бардык укуктар корголгон</div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

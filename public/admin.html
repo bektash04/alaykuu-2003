@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Создать билет — Админ</title>
+<style>
+  :root{
+    --bg:#f6f7fb; --card:#fff; --text:#0f172a;
+    --muted:#6b7280; --border:#e5e7eb; --accent:#4f46e5;
+    --pill:#eef2ff; --pill-border:#c7d2fe;
+  }
+  body{ font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+        background:var(--bg); margin:0; padding:24px; color:var(--text); }
+  .card{ max-width:720px; margin:0 auto; background:var(--card); border:1px solid var(--border);
+         border-radius:16px; padding:20px; box-shadow:0 8px 24px rgba(2,6,23,0.06); }
+  h1{ font-size:22px; margin:0 0 12px; }
+  .hint{ color:var(--muted); font-size:13px; margin:-4px 0 12px; }
+  .row{ display:flex; gap:40px; margin-bottom:12px; }
+  .row>div{ flex:1; }
+  label{ display:block; font-size:12px; color:var(--muted); margin-bottom:6px; }
+  input, select{ width:100%; padding:12px 14px; border:1px solid #d1d5db; border-radius:12px; font-size:16px; box-sizing:border-box; }
+  button{ padding:14px 16px; border:0; border-radius:12px; background:var(--accent); color:#fff; font-weight:700; cursor:pointer; }
+  .result{ margin-top:16px; padding:12px; background:var(--pill); border:1px dashed var(--pill-border); border-radius:12px; display:none; }
+  .top-right{ position:fixed; right:16px; top:16px; }
+  .scan{ text-decoration:none; background:#4f46e5; color:#fff; padding:10px 14px; border-radius:10px; font-weight:700; }
+  .btn{ padding:10px 14px; border-radius:10px; font-weight:700; text-decoration:none; display:inline-block; }
+  .btn-dark{ background:#111827; color:#fff; }
+  .btn-outline{ border:1px solid #4f46e5; color:#4f46e5; background:#fff; }
+  h2{ font-size:18px; margin:0 0 10px; }
+  .table-wrap{ overflow:auto; }
+  .table{ width:100%; border-collapse:collapse; font-size:14px; }
+  .table th, .table td{ padding:10px 12px; border-bottom:1px solid var(--border); white-space:nowrap; }
+  .badge{ display:inline-block; padding:2px 8px; border-radius:999px; background:var(--pill); border:1px solid var(--pill-border); }
+  @media (max-width:640px){
+    body{ padding:12px; }
+    .card{ padding:16px; border-radius:14px; }
+    .row{ flex-direction:column; gap:10px; }
+    button{ width:100%; }
+  }
+</style>
+</head>
+<body>
+  <div class="top-right">
+    <a class="scan" href="/scan">Сканер</a>
+    <a class="scan" style="margin-left:8px;background:#0f172a;border:1px solid #1f2937" href="/export.csv">Экспорт CSV</a>
+  </div>
+
+  <div class="card">
+    <h1>Создать билет (админ)</h1>
+    <div id="leftCount" class="hint">Загрузка остатков…</div>
+
+    <form id="ticketForm">
+      <div class="row">
+        <div>
+          <label>Аты-жөнү *</label>
+          <input name="buyer_name" placeholder="Например: Бекташ Токтобаев" required />
+        </div>
+        <div>
+          <label>Түрү</label>
+          <select name="ticket_category">
+            <option>Студент</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>Орундук</label>
+          <input name="seat" placeholder="Орундар эркин тандалат" />
+        </div>
+        <div>
+          <label>Номуру (каалоо боюнча)</label>
+          <input name="serial_no" type="number" min="1" max="200" list="freeList" placeholder="Авто если пусто" />
+          <datalist id="freeList"></datalist>
+        </div>
+      </div>
+
+      <button type="submit">Создать билет</button>
+      <div id="result" class="result"></div>
+    </form>
+  </div>
+
+  <div class="card" id="salesCard" style="margin-top:16px;">
+    <h2>История продаж</h2>
+    <div id="stats" class="hint">Загрузка статистики…</div>
+    <div class="table-wrap">
+      <table class="table" id="historyTable">
+        <thead>
+          <tr>
+            <th>Время</th>
+            <th>Имя</th>
+            <th>Тип</th>
+            <th>№</th>
+            <th>ID</th>
+            <th>Статус</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <form class="top-right" method="post" action="/logout" style="display:inline-block">
+  <button class="scan" style="margin-top:35px;background:#6b7280;border:1px solid #9ca3af">Выйти</button>
+</form>
+
+<script>
+const form = document.getElementById('ticketForm');
+const result = document.getElementById('result');
+const leftCount = document.getElementById('leftCount');
+const freeList = document.getElementById('freeList');
+
+/** fetch с одной попыткой “рукопожатия” Basic-Auth.
+ *  Если пришёл 401, делаем навигацию на /admin (чтобы браузер показал диалог),
+ *  после возврата/перезагрузки кэш авторизации уже есть и следующие fetch пройдут. */
+async function authFetch(url, opts){
+  const res = await fetch(url, opts);
+  if (res.status === 401) { location.href = '/login'; throw new Error('Unauthorized'); }
+  return res;
+}
+
+// если мы вернулись после 401 — сразу перезагрузим данные и очистим флажок
+if (sessionStorage.getItem('need-retry') === '1') {
+  sessionStorage.removeItem('need-retry');
+  // маленькая задержка, чтобы DOM успел отрисоваться
+  setTimeout(() => {
+    refreshSummary();
+    refreshFreeList();
+    loadStats();
+    loadHistory(50);
+  }, 50);
+}
+
+async function refreshSummary(){
+  try{
+    const s = await authFetch('/api/numbers/summary').then(r=>r.json());
+    const sold = (s.total || 0) - (s.free || 0);
+    leftCount.textContent = `Осталось билетов: ${s.free} из ${s.total} • Продано: ${sold}`;
+  }catch{
+    leftCount.textContent = 'Не удалось загрузить остатки';
+  }
+}
+
+async function refreshFreeList(){
+  try{
+    const d = await authFetch('/api/numbers/free?limit=15').then(r=>r.json());
+    freeList.innerHTML = (d.numbers || []).map(n => `<option value="${n}"></option>`).join('');
+  }catch{}
+}
+
+async function loadStats(){
+  const el = document.getElementById('stats');
+  try{
+    const st  = await authFetch('/api/tickets/stats').then(r=>r.json());
+    const s   = await authFetch('/api/numbers/summary').then(r=>r.json()).catch(()=>({total:0,free:0}));
+    const left = s.free ?? 0, total = s.total ?? 0;
+    const parts = Object.entries(st.by_category || {}).map(([k,v]) => `${k}: ${v}`);
+    el.textContent =
+      `Продано всего: ${st.total || 0}` +
+      (parts.length ? ` • ${parts.join(' • ')}` : '') +
+      (total ? ` • Осталось: ${left} из ${total}` : '');
+  }catch{
+    el.textContent = 'Не удалось загрузить статистику';
+  }
+}
+
+function fmtDT(s){ try{ return new Date(s).toLocaleString(); }catch{ return s || ''; } }
+
+async function loadHistory(limit=50){
+  const tbody = document.querySelector('#historyTable tbody');
+  try{
+    const data = await authFetch(`/api/tickets/recent?limit=${limit}`).then(r=>r.json());
+    tbody.innerHTML =
+      (data.tickets || []).map(t => `
+        <tr>
+          <td>${fmtDT(t.issued_at)}</td>
+          <td>${t.buyer_name || ''}</td>
+          <td><span class="badge">${t.ticket_category || '—'}</span></td>
+          <td>${t.serial_no ?? '—'}</td>
+          <td style="font-family:ui-monospace,Consolas,monospace">${t.id}</td>
+          <td>${t.status === 'used' ? 'Отмечен' : 'Выдан'}</td>
+        </tr>`).join('') || `<tr><td colspan="6">Пока нет продаж</td></tr>`;
+  }catch{
+    tbody.innerHTML = `<tr><td colspan="6">Ошибка загрузки истории</td></tr>`;
+  }
+}
+
+// первичная загрузка
+refreshSummary();
+refreshFreeList();
+loadStats();
+loadHistory(50);
+
+// ——— Создание билета ———
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const data = Object.fromEntries(new FormData(form).entries());
+  if (data.serial_no === '') delete data.serial_no;
+
+  const btn = form.querySelector('button[type="submit"]');
+  btn.disabled = true; btn.textContent = 'Создаём...';
+
+  result.style.display = 'block';
+  result.textContent = 'Создаём PDF…';
+
+  try{
+    const res  = await authFetch('/api/tickets', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(data)
+    });
+    const json = await res.json();
+    if (!res.ok || !json.ok) {
+      result.innerHTML = 'Ошибка: ' + (json.error || res.statusText);
+      return;
+    }
+
+    const { ticket, pdf_url, pdf_view_url } = json;
+    result.innerHTML = `
+      <b>Готово!</b> Билет <code>${ticket.id}</code> (№<b>${ticket.serial_no}</b>) для <b>${ticket.buyer_name}</b>.
+      <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:10px">
+        <a class="btn btn-dark" href="${pdf_view_url}" target="_blank" rel="noopener">Открыть</a>
+        <a class="btn btn-outline" href="${pdf_url}" target="_blank" rel="noopener">Скачать</a>
+        <button id="shareBtn" class="btn btn-outline" type="button">Поделиться</button>
+        <button id="copyBtn" class="btn btn-outline" type="button">Скопировать</button>
+      </div>`;
+
+    document.getElementById('shareBtn')?.addEventListener('click', async () => {
+      const url = location.origin + pdf_view_url;
+      const payload = { title: 'Ваш билет', text: `Билет ${ticket.id} (№${ticket.serial_no})`, url };
+      if (navigator.share) { try { await navigator.share(payload); } catch{} }
+      else {
+        try { await navigator.clipboard.writeText(url); } catch{}
+        const b = document.getElementById('shareBtn'); b.textContent = 'Ссылка скопирована';
+        setTimeout(()=> b.textContent = 'Поделиться', 1500);
+      }
+    });
+
+    document.getElementById('copyBtn')?.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(location.origin + pdf_url);
+        const b = document.getElementById('copyBtn'); b.textContent = 'Скопировано';
+        setTimeout(()=> b.textContent = 'Скопировать', 1500);
+      } catch {
+        const b = document.getElementById('copyBtn'); b.textContent = 'Ошибка копирования';
+        setTimeout(()=> b.textContent = 'Скопировать', 1500);
+      }
+    });
+
+    form.reset();
+    refreshSummary();
+    refreshFreeList();
+    loadStats();
+    loadHistory(50);
+  } catch (e) {
+    result.textContent = 'Ошибка сети: ' + e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Создать билет';
+  }
+});
+</script>
+
+</body>
+</html>

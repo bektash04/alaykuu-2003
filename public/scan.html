@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Сканер билетов</title>
+<style>
+  :root{ --ok:#16a34a; --warn:#f59e0b; --bad:#dc2626; --bg:#0b1220; --card:#0f172a; --muted:#93a4bd; }
+  body{ margin:0; background:var(--bg); color:#fff; font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif; }
+  header{ display:flex; justify-content:space-between; align-items:center; padding:12px 16px; background:#0a0f1c; border-bottom:1px solid #13203a; }
+  header a{ color:#93c5fd; text-decoration:none; font-weight:700; }
+  .wrap{ max-width:1000px; margin:16px auto; padding:0 12px; }
+  .grid{ display:grid; grid-template-columns:1.2fr 1fr; gap:16px; }
+  .card{ background:var(--card); border:1px solid #13203a; border-radius:14px; padding:14px; }
+  video{ width:100%; border-radius:10px; background:#000; }
+  .status{ border-radius:14px; padding:16px; text-align:center; font-weight:800; font-size:24px; }
+  .status small{ display:block; margin-top:6px; color:var(--muted); font-weight:500; font-size:13px; }
+  .ok{ background:#072a12; border:1px solid #14532d; color:#bbf7d0; }
+  .warn{ background:#2a2007; border:1px solid #7c5f0b; color:#fde68a; }
+  .bad{ background:#2a0b0b; border:1px solid #7f1d1d; color:#fecaca; }
+  .kv{ display:flex; flex-direction:column; gap:8px; }
+   .kv div.lab-item{ background-color: #002058; }
+  .kv div{ background:#0b1629; border:1px solid #13203a; border-radius:10px; padding:10px 12px; }
+  .lab{ color:#93a4bd;  font-size:12px; text-transform:uppercase; letter-spacing:.08em; }
+  .val{ font-size:16px; font-weight:700; }
+  button{ padding:12px 14px; border-radius:10px; border:1px solid #2d4a7a; background:#102544; color:#e5f0ff; font-weight:800; cursor:pointer; }
+  .rowbtn{ margin-top:10px; display:flex; gap:10px; }
+  .field{ display:flex; gap:8px; }
+  input[type="text"]{ flex:1; background:#0b1629; color:#e5f0ff; border:1px solid #203659; border-radius:10px; padding:12px 12px; font-size:16px; }
+  .muted{ color:var(--muted); font-size:12px; margin-top:6px; }
+  @media (max-width: 720px){ .grid{ grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <div>Сканер билетов</div>
+  <a href="/admin">Админка</a>
+</header>
+
+<div class="wrap">
+  <div class="grid">
+    <!-- Левая колонка: камера -->
+    <div class="card">
+      <video id="cam" playsinline></video>
+      <div class="rowbtn"><button id="toggle">Старт / Стоп</button></div>
+      <div class="muted">Для работы камеры нужен HTTPS и поддержка браузером BarcodeDetector (лучше Chrome на Android).</div>
+    </div>
+
+    <!-- Правая колонка: статус + данные + ручная проверка -->
+    <div class="card">
+      <div id="status" class="status">Ожидание…<small>Наведи камеру на QR или проверь вручную</small></div>
+
+      <div class="kv" style="margin-top:10px">
+        <div class="row-lab"><div class="lab lab-item">Имя</div><div id="buyer" class="val">—</div></div>
+        <div class="row-lab"><div class="lab lab-item">ID</div><div id="tid" class="val">—</div></div>
+        <div class="row-lab"><div class="lab lab-item">Отмечен</div><div id="used" class="val">—</div></div>
+      </div>
+
+      <div style="margin-top:14px">
+        <div class="lab" style="margin-bottom:6px">Проверка вручную</div>
+        <form id="manualForm" class="field">
+          <input id="manualInput" type="text" placeholder="Вставь ID (TCK-...) или JSON из QR" autocomplete="off" />
+          <button type="submit">Проверить</button>
+          <button type="button" id="pasteBtn" title="Вставить из буфера">Вставить</button>
+        </form>
+        <div class="muted">Совет: скопируй ID с PDF (формат: <code>TCK-YYYYMMDD-XXXX....</code>) и вставь сюда.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+
+  
+let stream, rafId, scanning=false;
+const video = document.getElementById('cam');
+const statusBox = document.getElementById('status');
+const buyerEl = document.getElementById('buyer');
+const tidEl = document.getElementById('tid');
+const usedEl = document.getElementById('used');
+const btn = document.getElementById('toggle');
+const manualForm = document.getElementById('manualForm');
+const manualInput = document.getElementById('manualInput');
+const pasteBtn = document.getElementById('pasteBtn');
+
+
+
+
+function beep(freq=880, ms=120){
+  try{
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const o = ctx.createOscillator(); const g = ctx.createGain();
+    o.frequency.value=freq; o.type="sine"; o.connect(g); g.connect(ctx.destination);
+    o.start(); g.gain.setValueAtTime(0.25, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + ms/1000);
+    setTimeout(()=>{o.stop(); ctx.close();}, ms+20);
+  }catch(e){}
+}
+
+function status(kind, text, sub=''){
+  statusBox.className = 'status ' + (kind==='ok'?'ok':kind==='bad'?'bad':'warn');
+  statusBox.innerHTML = text + (sub?`<small>${sub}</small>`:'');
+}
+
+async function start(){
+  if (!('BarcodeDetector' in window)) {
+    status('bad','Этот браузер не поддерживает BarcodeDetector.','Используй Chrome/Android или проверь вручную ниже.');
+    return;
+  }
+  const det = new BarcodeDetector({formats:['qr_code']});
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+  }catch(e){
+    status('bad','Нет доступа к камере','Разреши доступ или используй ручную проверку.');
+    return;
+  }
+  video.srcObject = stream; await video.play();
+  scanning = true;
+
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+
+  async function tick(){
+    if (!scanning){ return; }
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    ctx.drawImage(video,0,0,canvas.width,canvas.height);
+    const bitmap = await createImageBitmap(canvas);
+    try{
+      const codes = await det.detect(bitmap);
+      if (codes.length){
+        const raw = codes[0].rawValue;
+        handleRawPayload(raw);
+        await new Promise(r => setTimeout(r, 900)); // анти-дребезг
+      }
+    }catch(e){}
+    rafId = requestAnimationFrame(tick);
+  }
+  tick();
+}
+
+function stop(){
+  scanning = false;
+  if (rafId) cancelAnimationFrame(rafId);
+  if (stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+  status('warn','Остановлено');
+}
+
+btn.addEventListener('click', () => scanning ? stop() : start());
+
+// разбор строки: JSON с {ticket_id} или просто ID
+function extractTicketId(str){
+  if (!str) return null;
+  let s = String(str).trim();
+
+  // 1) JSON из QR: {"ticket_id":"..."}
+  try {
+    const obj = JSON.parse(s);
+    if (obj && obj.ticket_id) return String(obj.ticket_id);
+  } catch(_){}
+
+  // 2) Если вставили ссылку вида /view/<ID> или /download/<ID>
+  const m = s.match(/\/(view|download)\/([A-Z0-9\-]+)/i);
+  if (m && m[2]) return m[2];
+
+  // 3) Иначе считаем, что это сам ID
+  return s;
+}
+
+async function verify(ticket_id){
+  const res = await fetch('/api/verify', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ ticket_id })
+  });
+  const json = await res.json();
+
+  if (json.status === 'OK'){
+    beep(880,140);
+    status('ok','ПРОХОД РАЗРЕШЁН','Билет активирован');
+  } else if (json.status === 'ALREADY_USED'){
+    beep(440,180);
+    status('warn','УЖЕ ИСПОЛЬЗОВАН', json.used_at ? new Date(json.used_at).toLocaleString() : '');
+  } else {
+    beep(220,220);
+    status('bad','НЕВАЛИДНЫЙ БИЛЕТ','Проверьте QR/ID');
+  }
+
+  buyerEl.textContent = json.buyer_name || '—';
+  tidEl.textContent = json.ticket_id || ticket_id || '—';
+  usedEl.textContent = json.used_at ? new Date(json.used_at).toLocaleString() :
+                       json.status==='OK' ? 'только что' : '—';
+}
+
+function handleRawPayload(raw){
+  const id = extractTicketId(raw);
+  if (!id){
+    status('bad','Некорректные данные QR','Нет ticket_id');
+    beep(220,200);
+    return;
+  }
+  verify(id);
+}
+
+// Ручная проверка — отправка формы
+manualForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const val = manualInput.value.trim();
+  if (!val) return;
+  handleRawPayload(val);
+});
+
+// Вставка из буфера обмена
+pasteBtn.addEventListener('click', async () => {
+  try{
+    const text = await navigator.clipboard.readText();
+    if (text){
+      manualInput.value = text.trim();
+      handleRawPayload(text);
+    }
+  }catch(e){
+    status('warn','Нет доступа к буферу','Вставь вручную (Ctrl+V)');
+  }
+});
+
+// автостарт камеры (если возможно)
+start().catch(()=> status('bad','Нет доступа к камере','Нужен HTTPS или разрешение камеры'));
+</script>
+</body>
+</html>
