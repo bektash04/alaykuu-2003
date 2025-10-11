@@ -19,13 +19,12 @@
   .warn{ background:#2a2007; border:1px solid #7c5f0b; color:#fde68a; }
   .bad{ background:#2a0b0b; border:1px solid #7f1d1d; color:#fecaca; }
   .kv{ display:flex; flex-direction:column; gap:8px; }
-   .kv div.lab-item{ background-color: #002058; }
-  .kv div{ background:#0b1629; border:1px solid #13203a; border-radius:10px; padding:10px 12px; }
-  .lab{ color:#93a4bd;  font-size:12px; text-transform:uppercase; letter-spacing:.08em; }
+  .kv .row{ background:#0b1629; border:1px solid #13203a; border-radius:10px; padding:10px 12px; }
+  .lab{ color:#93a4bd; font-size:12px; text-transform:uppercase; letter-spacing:.08em; }
   .val{ font-size:16px; font-weight:700; }
   button{ padding:12px 14px; border-radius:10px; border:1px solid #2d4a7a; background:#102544; color:#e5f0ff; font-weight:800; cursor:pointer; }
-  .rowbtn{ margin-top:10px; display:flex; gap:10px; }
-  .field{ display:flex; gap:8px; }
+  .rowbtn{ margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; }
+  .field{ display:flex; gap:8px; margin-top:8px; }
   input[type="text"]{ flex:1; background:#0b1629; color:#e5f0ff; border:1px solid #203659; border-radius:10px; padding:12px 12px; font-size:16px; }
   .muted{ color:var(--muted); font-size:12px; margin-top:6px; }
   @media (max-width: 720px){ .grid{ grid-template-columns:1fr; } }
@@ -41,8 +40,14 @@
   <div class="grid">
     <!-- Левая колонка: камера -->
     <div class="card">
+      <div class="rowbtn">
+        <button id="toggle" type="button">Старт</button>
+        <button id="fileMode" type="button">Фотоскан</button>
+      </div>
+
       <video id="cam" playsinline></video>
-      <div class="rowbtn"><button id="toggle">Старт / Стоп</button></div>
+      <canvas id="grab" width="640" height="480" style="display:none"></canvas>
+      <input id="filePick" type="file" accept="image/*" capture="environment" style="display:none">
       <div class="muted">Для работы камеры нужен HTTPS и поддержка браузером BarcodeDetector (лучше Chrome на Android).</div>
     </div>
 
@@ -51,179 +56,214 @@
       <div id="status" class="status">Ожидание…<small>Наведи камеру на QR или проверь вручную</small></div>
 
       <div class="kv" style="margin-top:10px">
-        <div class="row-lab"><div class="lab lab-item">Имя</div><div id="buyer" class="val">—</div></div>
-        <div class="row-lab"><div class="lab lab-item">ID</div><div id="tid" class="val">—</div></div>
-        <div class="row-lab"><div class="lab lab-item">Отмечен</div><div id="used" class="val">—</div></div>
+        <div class="row">
+          <div class="lab">Имя</div>
+          <div id="buyer" class="val">—</div>
+        </div>
+        <div class="row">
+          <div class="lab">ID</div>
+          <div id="tid" class="val">—</div>
+        </div>
+        <div class="row">
+          <div class="lab">Отмечен</div>
+          <div id="used" class="val">—</div>
+        </div>
       </div>
 
       <div style="margin-top:14px">
         <div class="lab" style="margin-bottom:6px">Проверка вручную</div>
         <form id="manualForm" class="field">
           <input id="manualInput" type="text" placeholder="Вставь ID (TCK-...) или JSON из QR" autocomplete="off" />
-          <button type="submit">Проверить</button>
-          <button type="button" id="pasteBtn" title="Вставить из буфера">Вставить</button>
+          <button id="checkBtn" type="submit">Проверить</button>
+          <button id="pasteBtn" type="button" title="Вставить из буфера">Вставить</button>
         </form>
-        <div class="muted">Совет: скопируй ID с PDF (формат: <code>TCK-YYYYMMDD-XXXX....</code>) и вставь сюда.</div>
+        <div class="muted">Совет: скопируй ID с PDF (формат: <code>TCK-YYYYMMDD-XXXX...</code>) и вставь сюда.</div>
       </div>
     </div>
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <script>
+  // --- DOM
+  const video    = document.getElementById('cam');
+  const toggle   = document.getElementById('toggle');
+  const fileBtn  = document.getElementById('fileMode');
+  const filePick = document.getElementById('filePick');
+  const canvas   = document.getElementById('grab');
+  const ctx      = canvas.getContext('2d');
 
-  
-let stream, rafId, scanning=false;
-const video = document.getElementById('cam');
-const statusBox = document.getElementById('status');
-const buyerEl = document.getElementById('buyer');
-const tidEl = document.getElementById('tid');
-const usedEl = document.getElementById('used');
-const btn = document.getElementById('toggle');
-const manualForm = document.getElementById('manualForm');
-const manualInput = document.getElementById('manualInput');
-const pasteBtn = document.getElementById('pasteBtn');
+  const st       = document.getElementById('status');
+  const elBuyer  = document.getElementById('buyer');
+  const elId     = document.getElementById('tid');
+  const elUsed   = document.getElementById('used');
 
+  const manualForm  = document.getElementById('manualForm');
+  const manualInput = document.getElementById('manualInput');
+  const pasteBtn    = document.getElementById('pasteBtn');
 
+  // --- camera
+  let stream = null, rafId = null, detector = null, running = false;
 
-
-function beep(freq=880, ms=120){
-  try{
-    const ctx = new (window.AudioContext||window.webkitAudioContext)();
-    const o = ctx.createOscillator(); const g = ctx.createGain();
-    o.frequency.value=freq; o.type="sine"; o.connect(g); g.connect(ctx.destination);
-    o.start(); g.gain.setValueAtTime(0.25, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + ms/1000);
-    setTimeout(()=>{o.stop(); ctx.close();}, ms+20);
-  }catch(e){}
-}
-
-function status(kind, text, sub=''){
-  statusBox.className = 'status ' + (kind==='ok'?'ok':kind==='bad'?'bad':'warn');
-  statusBox.innerHTML = text + (sub?`<small>${sub}</small>`:'');
-}
-
-async function start(){
-  if (!('BarcodeDetector' in window)) {
-    status('bad','Этот браузер не поддерживает BarcodeDetector.','Используй Chrome/Android или проверь вручную ниже.');
-    return;
+  function setStatus(kind, text, sub='') {
+    st.className = 'status ' + (kind || '');
+    st.innerHTML = text + (sub ? `<small>${sub}</small>` : '');
   }
-  const det = new BarcodeDetector({formats:['qr_code']});
-  try{
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-  }catch(e){
-    status('bad','Нет доступа к камере','Разреши доступ или используй ручную проверку.');
-    return;
+  function setInfo({name='—', id='—', used='—'} = {}) {
+    elBuyer.textContent = name;
+    elId.textContent    = id;
+    elUsed.textContent  = used;
   }
-  video.srcObject = stream; await video.play();
-  scanning = true;
 
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d');
+  async function startCamera() {
+    if (running) return;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width:{ideal:1280}, height:{ideal:720} },
+        audio: false
+      });
+      video.srcObject = stream;
+      await video.play();
+      running = true;
+      toggle.textContent = 'Стоп';
+      setStatus('', 'Сканируем…', 'Наведи камеру на QR');
 
-  async function tick(){
-    if (!scanning){ return; }
-    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
-    ctx.drawImage(video,0,0,canvas.width,canvas.height);
-    const bitmap = await createImageBitmap(canvas);
-    try{
-      const codes = await det.detect(bitmap);
-      if (codes.length){
-        const raw = codes[0].rawValue;
-        handleRawPayload(raw);
-        await new Promise(r => setTimeout(r, 900)); // анти-дребезг
+      if ('BarcodeDetector' in window) {
+        detector = detector || new window.BarcodeDetector({ formats:['qr_code'] });
+        loopBarcodeDetector();
+      } else {
+        loopJsQR();
       }
-    }catch(e){}
-    rafId = requestAnimationFrame(tick);
-  }
-  tick();
-}
-
-function stop(){
-  scanning = false;
-  if (rafId) cancelAnimationFrame(rafId);
-  if (stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
-  status('warn','Остановлено');
-}
-
-btn.addEventListener('click', () => scanning ? stop() : start());
-
-// разбор строки: JSON с {ticket_id} или просто ID
-function extractTicketId(str){
-  if (!str) return null;
-  let s = String(str).trim();
-
-  // 1) JSON из QR: {"ticket_id":"..."}
-  try {
-    const obj = JSON.parse(s);
-    if (obj && obj.ticket_id) return String(obj.ticket_id);
-  } catch(_){}
-
-  // 2) Если вставили ссылку вида /view/<ID> или /download/<ID>
-  const m = s.match(/\/(view|download)\/([A-Z0-9\-]+)/i);
-  if (m && m[2]) return m[2];
-
-  // 3) Иначе считаем, что это сам ID
-  return s;
-}
-
-async function verify(ticket_id){
-  const res = await fetch('/api/verify', {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ ticket_id })
-  });
-  const json = await res.json();
-
-  if (json.status === 'OK'){
-    beep(880,140);
-    status('ok','ПРОХОД РАЗРЕШЁН','Билет активирован');
-  } else if (json.status === 'ALREADY_USED'){
-    beep(440,180);
-    status('warn','УЖЕ ИСПОЛЬЗОВАН', json.used_at ? new Date(json.used_at).toLocaleString() : '');
-  } else {
-    beep(220,220);
-    status('bad','НЕВАЛИДНЫЙ БИЛЕТ','Проверьте QR/ID');
-  }
-
-  buyerEl.textContent = json.buyer_name || '—';
-  tidEl.textContent = json.ticket_id || ticket_id || '—';
-  usedEl.textContent = json.used_at ? new Date(json.used_at).toLocaleString() :
-                       json.status==='OK' ? 'только что' : '—';
-}
-
-function handleRawPayload(raw){
-  const id = extractTicketId(raw);
-  if (!id){
-    status('bad','Некорректные данные QR','Нет ticket_id');
-    beep(220,200);
-    return;
-  }
-  verify(id);
-}
-
-// Ручная проверка — отправка формы
-manualForm.addEventListener('submit', (e) => {
-  e.preventDefault();
-  const val = manualInput.value.trim();
-  if (!val) return;
-  handleRawPayload(val);
-});
-
-// Вставка из буфера обмена
-pasteBtn.addEventListener('click', async () => {
-  try{
-    const text = await navigator.clipboard.readText();
-    if (text){
-      manualInput.value = text.trim();
-      handleRawPayload(text);
+    } catch(e) {
+      setStatus('bad', 'Нет доступа к камере', e.message || '');
     }
-  }catch(e){
-    status('warn','Нет доступа к буферу','Вставь вручную (Ctrl+V)');
   }
-});
 
-// автостарт камеры (если возможно)
-start().catch(()=> status('bad','Нет доступа к камере','Нужен HTTPS или разрешение камеры'));
+  function stopCamera() {
+    if (!running) return;
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = null;
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    running = false;
+    toggle.textContent = 'Старт';
+    setStatus('', 'Ожидание…', 'Наведи камеру на QR или проверь вручную');
+  }
+
+  async function loopBarcodeDetector() {
+    const step = async () => {
+      if (!running) return;
+      try {
+        const codes = await detector.detect(video);
+        if (codes && codes.length && codes[0].rawValue) {
+          onQR(codes[0].rawValue);
+          return;
+        }
+      } catch(e){}
+      rafId = requestAnimationFrame(step);
+    };
+    step();
+  }
+
+  function loopJsQR() {
+    const step = () => {
+      if (!running) return;
+      const w = video.videoWidth, h = video.videoHeight;
+      if (w && h) {
+        canvas.width = w; canvas.height = h;
+        ctx.drawImage(video, 0, 0, w, h);
+        const img = ctx.getImageData(0, 0, w, h);
+        const code = jsQR(img.data, img.width, img.height);
+        if (code && code.data) { onQR(code.data); return; }
+      }
+      rafId = requestAnimationFrame(step);
+    };
+    step();
+  }
+
+  toggle.addEventListener('click', () => (running ? stopCamera() : startCamera()));
+
+  // --- фотоскан
+  fileBtn.addEventListener('click', () => filePick.click());
+  filePick.addEventListener('change', () => {
+    const file = filePick.files?.[0];
+    if (!file) return;
+    const img = new Image();
+    img.onload = () => {
+      canvas.width = img.width; canvas.height = img.height;
+      ctx.drawImage(img,0,0);
+      const data = ctx.getImageData(0,0,canvas.width,canvas.height);
+      const code = jsQR(data.data, data.width, data.height);
+      if (code && code.data) onQR(code.data);
+      else setStatus('bad', 'QR не найден на фото');
+    };
+    img.src = URL.createObjectURL(file);
+  });
+
+  // --- сверка QR/ручного ввода
+  function setKpi({ name, id, used, cls }) {
+    setInfo({ name, id, used });
+    if (cls === 'ok')   setStatus('ok', 'OK', 'Билет отмечен');
+    if (cls === 'warn') setStatus('warn', 'Уже отмечен', used ? `Время: ${used}` : '');
+    if (cls === 'bad')  setStatus('bad', 'Ошибка', used || '');
+  }
+
+  async function verifyTicket(text) {
+    setInfo({ name:'—', id:'—', used:'Проверяем…' });
+    setStatus('', 'Проверяем…');
+
+    try {
+      const res = await fetch('/api/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }) // сервер сам вырежет TCK-... из текста
+      });
+
+      const raw = await res.text();
+      let j;
+      try { j = JSON.parse(raw); } catch {
+        setKpi({ name:'—', id:'—', used:'Ответ не JSON', cls:'bad' });
+        console.warn('Unexpected response:', raw);
+        return;
+      }
+
+      if (j.status === 'OK') {
+        setKpi({ name: j.buyer_name, id: j.ticket_id, used: new Date(j.used_at).toLocaleString(), cls:'ok' });
+      } else if (j.status === 'ALREADY_USED') {
+        setKpi({ name: j.buyer_name, id: j.ticket_id, used: new Date(j.used_at).toLocaleString(), cls:'warn' });
+      } else if (j.status === 'INVALID') {
+        setKpi({ name:'—', id:'не найден', used:'—', cls:'bad' });
+      } else {
+        setKpi({ name:'—', id:'ошибка', used: (j.error || '—'), cls:'bad' });
+      }
+    } catch (e) {
+      setKpi({ name:'—', id:'сеть', used: e.message, cls:'bad' });
+    }
+  }
+
+  function onQR(text) {
+    stopCamera();               // по желанию можно не останавливать
+    verifyTicket(text);
+  }
+
+  // --- ручной ввод
+  manualForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const txt = manualInput.value.trim();
+    if (!txt) { manualInput.focus(); return; }
+    verifyTicket(txt);
+  });
+
+  pasteBtn.addEventListener('click', async () => {
+    try {
+      const txt = await navigator.clipboard.readText();
+      if (txt) manualInput.value = txt;
+    } catch (e) {
+      alert('Не удалось прочитать буфер обмена: ' + e.message);
+    }
+  });
+
+  // Автостарт камеры на поддерживаемых браузерах (можно отключить)
+  // startCamera();
 </script>
 </body>
 </html>
