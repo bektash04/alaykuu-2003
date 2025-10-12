@@ -374,6 +374,32 @@ app.get('/export.csv', requireAuth, (_req, res) => {
 
 // ===== Публичные маршруты (без логина) =====
 
+
+// ===== Очистка базы данных (только для админа) =====
+app.post("/api/admin/clear", requireAuth, async (req, res) => {
+  try {
+    db.serialize(() => {
+      db.run("DELETE FROM tickets");
+      db.run("DELETE FROM ticket_numbers");
+    });
+
+    // Вставляем заново все 200 номеров
+    db.serialize(() => {
+      db.run(`
+        WITH RECURSIVE seq(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM seq WHERE x<200)
+        INSERT INTO ticket_numbers (number)
+        SELECT x FROM seq;
+      `);
+    });
+
+    res.json({ ok: true, message: "База успешно очищена и перезаполнена." });
+  } catch (e) {
+    console.error("Ошибка очистки:", e);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+
 // Скачать PDF (с ожиданием готовности)
 app.get('/download/:id', async (req, res) => {
   const file = path.resolve(OUT_DIR, `${req.params.id}.pdf`);

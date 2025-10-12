@@ -47,6 +47,17 @@
   </div>
 
   <div class="card">
+    <button id="clearBtn" style="
+  margin-top:10px;
+  background:#7f1d1d;
+  border:1px solid #991b1b;
+  color:#fff;
+  font-weight:700;
+  padding:10px 16px;
+  border-radius:10px;
+  cursor:pointer;">
+  Очистить базу
+</button>
     <h1>Создать билет (админ)</h1>
     <div id="leftCount" class="hint">Загрузка остатков…</div>
 
@@ -257,6 +268,20 @@ form.addEventListener('submit', async (e) => {
     result.textContent = 'Ошибка сети: ' + e.message;
   } finally {
     btn.disabled = false; btn.textContent = 'Создать билет';
+  }
+});
+</script>
+
+<script>
+document.getElementById('clearBtn').addEventListener('click', async () => {
+  if (!confirm('⚠️ Ты уверен, что хочешь полностью очистить базу билетов?')) return;
+  const resp = await fetch('/api/admin/clear', { method: 'POST' });
+  const data = await resp.json();
+  if (data.ok) {
+    alert('✅ База очищена успешно!');
+    location.reload();
+  } else {
+    alert('❌ Ошибка: ' + data.error);
   }
 });
 </script>
