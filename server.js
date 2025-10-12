@@ -40,7 +40,7 @@ app.use(cookieSession({
 
 // ===== Конфиг админки (логин/пароль) =====
 const ADMIN_USER = (process.env.ADMIN_USER || 'admin').trim();
-const ADMIN_PASS = (process.env.ADMIN_PASS || 'secret').trim();
+const ADMIN_PASS = (process.env.ADMIN_PASS || 'alaikuu0527').trim();
 
 // ===== Конфиг события =====
 const MAX_TICKETS       = 200;
