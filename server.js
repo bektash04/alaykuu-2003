@@ -184,7 +184,7 @@ async function renderPdf(ticket) {
     event_tagline: '2025',
     buyer_name: ticket.buyer_name,
     ticket_category: ticket.ticket_category || 'Standard',
-    event_date_human: dayjs().format('DD.MM.YYYY'),
+    event_date_human: dayjs('2025-11-09').format('DD.MM.YYYY'),
     event_time_human: EVENT_TIME,
     venue: VENUE,
     seat: ticket.seat || 'Орундар эркин тандалат',
